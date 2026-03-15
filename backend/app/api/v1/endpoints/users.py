@@ -3,13 +3,14 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text, select
 from pathlib import Path
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.security import verify_password, get_password_hash
 from app.models.user import User
-from app.schemas.user import UserResponse, UserUpdate, PasswordChange
+from app.schemas.user import UserResponse, UserUpdate, PasswordChange, LocationUpdate
 from app.services.storage import storage_service
 
 router = APIRouter()
@@ -150,4 +151,86 @@ async def change_password(
     await db.commit()
     
     return {"message": "Пароль успешно изменен"}
+
+
+@router.post("/location", response_model=UserResponse)
+async def set_location(
+    payload: LocationUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """
+    Обновление геолокации пользователя.
+
+    Сохраняет координаты в колонку `location` (GEOGRAPHY POINT, SRID 4326).
+    Формат: POINT(lon lat).
+    """
+    point_wkt = f"SRID=4326;POINT({payload.longitude} {payload.latitude})"
+
+    await db.execute(
+        text("UPDATE users SET location = ST_GeogFromText(:wkt) WHERE id = :uid"),
+        {"wkt": point_wkt, "uid": current_user.id},
+    )
+    await db.commit()
+
+    # Обновляем объект текущего пользователя
+    await db.refresh(current_user)
+    return UserResponse.model_validate(current_user)
+
+
+@router.get("/nearby", response_model=list[UserResponse])
+async def get_nearby_users(
+    radius_km: float = 10.0,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[UserResponse]:
+    """
+    Получение списка пользователей поблизости.
+
+    - Использует PostGIS функцию ST_DWithin/ST_Distance
+    - Возвращает пользователей в радиусе `radius_km` километров
+    - Исключает текущего пользователя и тех, с кем уже есть запись в `swipes`
+    """
+    if current_user.location is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Сначала нужно установить свою геолокацию через /users/location",
+        )
+
+    radius_m = radius_km * 1000
+
+    query = text(
+        """
+        WITH user_point AS (
+          SELECT location AS loc
+          FROM users
+          WHERE id = :uid AND location IS NOT NULL
+        ),
+        swiped AS (
+          SELECT CASE
+                   WHEN user_id_1 = :uid THEN user_id_2
+                   ELSE user_id_1
+                 END AS other_id
+          FROM swipes
+          WHERE user_id_1 = :uid OR user_id_2 = :uid
+        )
+        SELECT u.id
+        FROM users u, user_point p
+        WHERE u.id != :uid
+          AND u.location IS NOT NULL
+          AND u.id NOT IN (SELECT other_id FROM swiped)
+          AND ST_DWithin(u.location, p.loc, :radius)
+        ORDER BY ST_Distance(u.location, p.loc)
+        LIMIT 50
+        """
+    )
+
+    result = await db.execute(query, {"uid": current_user.id, "radius": radius_m})
+    ids = [row[0] for row in result.fetchall()]
+
+    if not ids:
+        return []
+
+    result_users = await db.execute(select(User).where(User.id.in_(ids)))
+    return [UserResponse.model_validate(u) for u in result_users.scalars().all()]
 

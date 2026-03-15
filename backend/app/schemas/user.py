@@ -106,6 +106,14 @@ class PasswordChange(BaseModel):
         }
 
 
+class LocationUpdate(BaseModel):
+    """Схема для обновления геолокации пользователя."""
+
+    latitude: float = Field(..., ge=-90, le=90, description="Широта (-90 до 90)")
+    longitude: float = Field(..., ge=-180, le=180, description="Долгота (-180 до 180)")
+
+
+
 class Token(BaseModel):
     """Схема для JWT токена."""
     access_token: str = Field(..., description="JWT токен доступа")

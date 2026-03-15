@@ -35,6 +35,10 @@ docker exec -it resonans_postgres psql -U resonans_user -d resonans_db
 
 ```bash
 type migrations\001_add_profile_fields.sql | docker exec -i resonans_postgres psql -U resonans_user -d resonans_db
+
+type migrations\004_swipes_matches.sql | docker exec -i resonans_postgres psql -U resonans_user -d resonans_db
+
+
 //
 docker exec -i resonans_postgres psql -U resonans_user -d resonans_db < backend/migrations/001_add_profile_fields.sql
 ```
@@ -287,6 +291,27 @@ curl -X PATCH "http://localhost:8000/api/v1/users/me" \
     "bio": "Новое описание",
     "birthdate": "1990-01-01"
   }'
+```
+
+### Тест геолокации и поиска рядом (curl)
+
+Установка геолокации пользователя:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/users/location" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "latitude": 55.7558,
+    "longitude": 37.6173
+  }'
+```
+
+Поиск пользователей рядом:
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/users/nearby?radius_km=10" \
+  -H "Authorization: Bearer <token>"
 ```
 
 ## Устранение неполадок
