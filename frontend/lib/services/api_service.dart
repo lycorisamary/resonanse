@@ -220,6 +220,71 @@ class ApiService {
     }
   }
 
+  /// Обновление геолокации пользователя (для гео-поиска и свайпов)
+  static Future<void> updateLocation({
+    required double latitude,
+    required double longitude,
+  }) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${ApiConfig.apiBaseUrl}/users/location'),
+      headers: headers,
+      body: _toJsonString({
+        'latitude': latitude,
+        'longitude': longitude,
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      final errorBody = _parseJson(response.body);
+      throw Exception(errorBody['detail'] ?? 'Ошибка обновления геолокации: ${response.statusCode}');
+    }
+  }
+
+  /// Получение ленты кандидатов для свайпов
+  static Future<List<User>> getFeed({double radiusKm = 10}) async {
+    final headers = await _getHeaders();
+    final response = await http.get(
+      Uri.parse('${ApiConfig.apiBaseUrl}/feed?radius_km=$radiusKm'),
+      headers: headers,
+    );
+
+    if (response.statusCode == 200) {
+      final data = _parseJson(response.body) as List<dynamic>;
+      return data
+          .map((userJson) => User.fromJson(userJson as Map<String, dynamic>))
+          .toList();
+    } else {
+      final errorBody = _parseJson(response.body);
+      throw Exception(errorBody['detail'] ?? 'Ошибка получения фида: ${response.statusCode}');
+    }
+  }
+
+  /// Отправка свайпа (лайк/дизлайк) по пользователю
+  /// Возвращает true, если получился взаимный матч.
+  static Future<bool> sendSwipe({
+    required int targetUserId,
+    required bool decision,
+  }) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('${ApiConfig.apiBaseUrl}/swipes'),
+      headers: headers,
+      body: _toJsonString({
+        'target_user_id': targetUserId,
+        'decision': decision,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      final data = _parseJson(response.body) as Map<String, dynamic>;
+      return (data['is_match'] as bool?) ?? false;
+    } else {
+      final errorBody = _parseJson(response.body);
+      throw Exception(errorBody['detail'] ?? 'Ошибка свайпа: ${response.statusCode}');
+    }
+  }
+
   /// Получение списка всех пользователей (только для админа)
   static Future<List<User>> getAllUsers() async {
     final headers = await _getHeaders();

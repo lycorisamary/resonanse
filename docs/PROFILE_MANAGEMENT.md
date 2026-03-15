@@ -36,7 +36,7 @@ docker exec -it resonans_postgres psql -U resonans_user -d resonans_db
 ```bash
 type migrations\001_add_profile_fields.sql | docker exec -i resonans_postgres psql -U resonans_user -d resonans_db
 
-type migrations\004_swipes_matches.sql | docker exec -i resonans_postgres psql -U resonans_user -d resonans_db
+type migrations\005_gender_and_interests.sql | docker exec -i resonans_postgres psql -U resonans_user -d resonans_db
 
 
 //

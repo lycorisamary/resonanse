@@ -10,7 +10,9 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.security import verify_password, get_password_hash
 from app.models.user import User
+from app.models.user_interest import UserInterest
 from app.schemas.user import UserResponse, UserUpdate, PasswordChange, LocationUpdate
+from pydantic import BaseModel, Field
 from app.services.storage import storage_service
 
 router = APIRouter()
@@ -178,55 +180,238 @@ async def set_location(
     return UserResponse.model_validate(current_user)
 
 
+class UserInterestsUpdate(BaseModel):
+    """Обновление списка интересов пользователя (простые текстовые теги)."""
+
+    tags: list[str] = Field(default_factory=list, description="Список интересов пользователя")
+
+
+@router.post("/interests", response_model=UserResponse)
+async def set_interests(
+    payload: UserInterestsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """
+    Установка/обновление интересов текущего пользователя.
+
+    Полностью заменяет список интересов пользователя на переданный.
+    """
+    # Удаляем старые интересы
+    await db.execute(
+        text("DELETE FROM user_interests WHERE user_id = :uid"),
+        {"uid": current_user.id},
+    )
+
+    # Вставляем новые, если есть
+    for tag in payload.tags:
+        cleaned = tag.strip()
+        if not cleaned:
+            continue
+        db.add(UserInterest(user_id=current_user.id, tag=cleaned))
+
+    await db.commit()
+    await db.refresh(current_user)
+    return UserResponse.model_validate(current_user)
+
+
 @router.get("/nearby", response_model=list[UserResponse])
 async def get_nearby_users(
-    radius_km: float = 10.0,
+    radius_km: int = 50,
+    age_min: int | None = None,
+    age_max: int | None = None,
+    gender: str | None = None,
+    has_common_interests: bool = False,
+    sort_by: str = "distance",  # distance | random | compatibility
+    global_search: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[UserResponse]:
     """
     Получение списка пользователей поблизости.
 
-    - Использует PostGIS функцию ST_DWithin/ST_Distance
-    - Возвращает пользователей в радиусе `radius_km` километров
+    Гибкий поиск пользователей поблизости (или глобально).
+
     - Исключает текущего пользователя и тех, с кем уже есть запись в `swipes`
+    - Поддерживает фильтры: возраст, пол, наличие общих интересов
+    - Поддерживает режим глобального поиска (без геофильтра)
     """
-    if current_user.location is None:
+    if not global_search and radius_km != -1 and current_user.location is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Сначала нужно установить свою геолокацию через /users/location",
         )
 
-    radius_m = radius_km * 1000
+    # Нормализуем sort_by
+    sort_by_normalized = sort_by.lower()
+    if sort_by_normalized not in {"distance", "random", "compatibility"}:
+        sort_by_normalized = "distance"
 
-    query = text(
-        """
-        WITH user_point AS (
-          SELECT location AS loc
-          FROM users
-          WHERE id = :uid AND location IS NOT NULL
-        ),
-        swiped AS (
-          SELECT CASE
-                   WHEN user_id_1 = :uid THEN user_id_2
-                   ELSE user_id_1
-                 END AS other_id
-          FROM swipes
-          WHERE user_id_1 = :uid OR user_id_2 = :uid
+    is_global = global_search or radius_km == -1
+    radius_m = radius_km * 1000 if not is_global else -1
+
+    params: dict[str, object] = {
+        "uid": current_user.id,
+        "radius": radius_m,
+    }
+
+    # Генерируем условие по полу только если фильтр задан.
+    gender_condition = ""
+    if gender is not None:
+        gender_condition = "AND u.gender = :gender"
+        params["gender"] = gender
+
+    # Условия по возрасту: добавляем и параметр только при наличии фильтра.
+    age_min_condition = ""
+    if age_min is not None:
+        age_min_condition = (
+            "AND u.birthdate IS NOT NULL "
+            "AND DATE_PART('year', age(u.birthdate)) >= CAST(:age_min AS INTEGER)"
         )
-        SELECT u.id
-        FROM users u, user_point p
-        WHERE u.id != :uid
-          AND u.location IS NOT NULL
-          AND u.id NOT IN (SELECT other_id FROM swiped)
-          AND ST_DWithin(u.location, p.loc, :radius)
-        ORDER BY ST_Distance(u.location, p.loc)
-        LIMIT 50
-        """
-    )
+        params["age_min"] = age_min
 
-    result = await db.execute(query, {"uid": current_user.id, "radius": radius_m})
-    ids = [row[0] for row in result.fetchall()]
+    age_max_condition = ""
+    if age_max is not None:
+        age_max_condition = (
+            "AND u.birthdate IS NOT NULL "
+            "AND DATE_PART('year', age(u.birthdate)) <= CAST(:age_max AS INTEGER)"
+        )
+        params["age_max"] = age_max
+
+    # Фильтр по общим интересам включаем только если он явно включён.
+    common_interests_condition = ""
+    if has_common_interests:
+        common_interests_condition = """
+                  AND EXISTS (
+                        SELECT 1
+                        FROM user_interests ui
+                        JOIN current_interests ci ON ci.tag = ui.tag
+                        WHERE ui.user_id = u.id
+                  )
+        """
+
+    if is_global:
+        # Глобальный поиск без геофильтра, но с подготовкой к AI-скорингу.
+        base_sql = """
+            WITH swiped AS (
+                SELECT CASE
+                         WHEN user_id_1 = :uid THEN user_id_2
+                         ELSE user_id_1
+                       END AS other_id
+                FROM swipes
+                WHERE user_id_1 = :uid OR user_id_2 = :uid
+            ),
+            current_interests AS (
+                SELECT tag
+                FROM user_interests
+                WHERE user_id = :uid
+            ),
+            base_candidates AS (
+                SELECT
+                    u.id,
+                    -- TODO: Здесь будет интеграция с AI-сервисом для расчета веса совместимости
+                    COALESCE(
+                        (
+                            SELECT COUNT(*)::float
+                            FROM user_interests ui
+                            JOIN current_interests ci ON ci.tag = ui.tag
+                            WHERE ui.user_id = u.id
+                        ),
+                        0.0
+                    ) AS ai_score
+                FROM users u
+                WHERE u.id != :uid
+                  AND u.id NOT IN (SELECT other_id FROM swiped)
+                  {gender_condition}
+                  {age_min_condition}
+                  {age_max_condition}
+                  {common_interests_condition}
+            )
+            SELECT id, ai_score
+            FROM base_candidates
+            """
+    else:
+        # Поиск рядом с использованием PostGIS
+        base_sql = """
+            WITH user_point AS (
+                SELECT location AS loc
+                FROM users
+                WHERE id = :uid AND location IS NOT NULL
+            ),
+            swiped AS (
+                SELECT CASE
+                         WHEN user_id_1 = :uid THEN user_id_2
+                         ELSE user_id_1
+                       END AS other_id
+                FROM swipes
+                WHERE user_id_1 = :uid OR user_id_2 = :uid
+            ),
+            current_interests AS (
+                SELECT tag
+                FROM user_interests
+                WHERE user_id = :uid
+            ),
+            base_candidates AS (
+                SELECT
+                    u.id,
+                    ST_Distance(u.location, p.loc) AS distance,
+                    -- TODO: Здесь будет интеграция с AI-сервисом для расчета веса совместимости
+                    COALESCE(
+                        (
+                            SELECT COUNT(*)::float
+                            FROM user_interests ui
+                            JOIN current_interests ci ON ci.tag = ui.tag
+                            WHERE ui.user_id = u.id
+                        ),
+                        0.0
+                    ) AS ai_score
+                FROM users u,
+                     user_point p
+                WHERE u.id != :uid
+                  AND u.location IS NOT NULL
+                  AND u.id NOT IN (SELECT other_id FROM swiped)
+                  AND ST_DWithin(u.location, p.loc, :radius)
+                  {gender_condition}
+                  {age_min_condition}
+                  {age_max_condition}
+                  {common_interests_condition}
+            )
+            SELECT id, distance, ai_score
+            FROM base_candidates
+            """
+
+    # Добавляем сортировку
+    if sort_by_normalized == "random":
+        order_sql = "\n ORDER BY random() \n LIMIT 50"
+    elif sort_by_normalized == "compatibility":
+        # Пока сортируем по ai_score, а distance учитываем только если он есть
+        if is_global:
+            order_sql = "\n ORDER BY ai_score DESC NULLS LAST, id \n LIMIT 50"
+        else:
+            order_sql = (
+                "\n ORDER BY ai_score DESC NULLS LAST, distance ASC NULLS LAST, id \n LIMIT 50"
+            )
+    else:
+        # distance по умолчанию
+        if is_global:
+            # В глобальном режиме distance нет, сортируем только по ai_score
+            order_sql = "\n ORDER BY ai_score DESC NULLS LAST, id \n LIMIT 50"
+        else:
+            order_sql = (
+                "\n ORDER BY distance ASC NULLS LAST, ai_score DESC NULLS LAST, id \n LIMIT 50"
+            )
+
+    sql_text = (base_sql + order_sql).format(
+        gender_condition=gender_condition,
+        age_min_condition=f" {age_min_condition}" if age_min_condition else "",
+        age_max_condition=f" {age_max_condition}" if age_max_condition else "",
+        common_interests_condition=common_interests_condition,
+    )
+    query = text(sql_text)
+
+    result = await db.execute(query, params)
+    rows = result.fetchall()
+    ids = [row[0] for row in rows]
 
     if not ids:
         return []

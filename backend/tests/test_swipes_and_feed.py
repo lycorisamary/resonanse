@@ -295,3 +295,160 @@ def test_nearby_excludes_already_swiped_users():
     
     # Главная проверка теста
     assert user2_id not in ids_after, "После свайпа пользователь НЕ должен быть в списке nearby"
+
+
+def test_nearby_with_filters_and_common_interests():
+    """
+    Проверка работы фильтров:
+    - возраст, пол
+    - наличие общих интересов
+    """
+    password = "password123"
+
+    # Текущий пользователь (ищущий)
+    email_main = get_test_email("filter_main")
+    r_main = requests.post(
+        f"{BASE_URL}/auth/register",
+        json={
+            "email": email_main,
+            "password": password,
+            "first_name": "Main",
+        },
+    )
+    assert r_main.status_code == 201, f"Ошибка регистрации main: {r_main.text}"
+    h_main = _auth_headers(email_main, password)
+
+    # Пользователь с общими интересами и подходящим возрастом/полом
+    email_ok = get_test_email("filter_ok")
+    r_ok = requests.post(
+        f"{BASE_URL}/auth/register",
+        json={
+            "email": email_ok,
+            "password": password,
+            "first_name": "Ok",
+        },
+    )
+    assert r_ok.status_code == 201, f"Ошибка регистрации ok: {r_ok.text}"
+    h_ok = _auth_headers(email_ok, password)
+
+    # Пользователь без общих интересов / другого пола
+    email_other = get_test_email("filter_other")
+    r_other = requests.post(
+        f"{BASE_URL}/auth/register",
+        json={
+            "email": email_other,
+            "password": password,
+            "first_name": "Other",
+        },
+    )
+    assert r_other.status_code == 201, f"Ошибка регистрации other: {r_other.text}"
+    h_other = _auth_headers(email_other, password)
+
+    # Обновляем профили: возраст и пол
+    # Предполагаем, что на бэкенде есть возможность указать birthdate и gender через /users/me
+    # Здесь выставляем дату рождения так, чтобы возраст был ~25 и ~40
+    resp_update_main = requests.patch(
+        f"{BASE_URL}/users/me",
+        json={"birthdate": "2000-01-01", "gender": "m"},
+        headers=h_main,
+    )
+    assert resp_update_main.status_code == 200, resp_update_main.text
+
+    resp_update_ok = requests.patch(
+        f"{BASE_URL}/users/me",
+        json={"birthdate": "1998-01-01", "gender": "f"},
+        headers=h_ok,
+    )
+    assert resp_update_ok.status_code == 200, resp_update_ok.text
+
+    resp_update_other = requests.patch(
+        f"{BASE_URL}/users/me",
+        json={"birthdate": "1970-01-01", "gender": "m"},
+        headers=h_other,
+    )
+    assert resp_update_other.status_code == 200, resp_update_other.text
+
+    # Ставим одинаковую локацию всем, чтобы не упираться в геофильтр
+    loc_payload = {"latitude": 55.7558, "longitude": 37.6173}
+    for h in (h_main, h_ok, h_other):
+        resp_loc = requests.post(f"{BASE_URL}/users/location", json=loc_payload, headers=h)
+        assert resp_loc.status_code == 200, resp_loc.text
+
+    # Настраиваем интересы:
+    # main: ["спорт", "кино"]
+    # ok: ["спорт"]
+    # other: ["музыка"]
+    resp_int_main = requests.post(
+        f"{BASE_URL}/users/interests",
+        json={"tags": ["спорт", "кино"]},
+        headers=h_main,
+    )
+    assert resp_int_main.status_code == 200, resp_int_main.text
+
+    resp_int_ok = requests.post(
+        f"{BASE_URL}/users/interests",
+        json={"tags": ["спорт"]},
+        headers=h_ok,
+    )
+    assert resp_int_ok.status_code == 200, resp_int_ok.text
+
+    resp_int_other = requests.post(
+        f"{BASE_URL}/users/interests",
+        json={"tags": ["музыка"]},
+        headers=h_other,
+    )
+    assert resp_int_other.status_code == 200, resp_int_other.text
+
+    # Запрашиваем nearby с фильтрами:
+    # - has_common_interests = True
+    # - gender = "f"
+    # - возраст от 20 до 35
+    resp_nearby = requests.get(
+        f"{BASE_URL}/users/nearby",
+        params={
+            "radius_km": 50,
+            "has_common_interests": True,
+            "gender": "f",
+            "age_min": 20,
+            "age_max": 35,
+        },
+        headers=h_main,
+    )
+    assert resp_nearby.status_code == 200, resp_nearby.text
+    ids = [u["id"] for u in resp_nearby.json()]
+
+    ok_id = r_ok.json()["id"]
+    other_id = r_other.json()["id"]
+
+    # Ожидаем, что подходит только пользователь с общими интересами и полом "f"
+    assert ok_id in ids
+    assert other_id not in ids
+
+
+def test_feed_global_search_mode():
+    """
+    Проверка режима глобального поиска для /feed:
+    - radius_km = -1 позволяет получать результаты без установленной геолокации.
+    """
+    email = get_test_email("global_feed")
+    password = "password123"
+
+    r = requests.post(
+        f"{BASE_URL}/auth/register",
+        json={
+            "email": email,
+            "password": password,
+            "first_name": "GlobalFeed",
+        },
+    )
+    assert r.status_code == 201, f"Ошибка регистрации global_feed: {r.text}"
+    headers = _auth_headers(email, password)
+
+    # Вызываем /feed в режиме глобального поиска без установки локации
+    resp = requests.get(
+        f"{BASE_URL}/feed",
+        params={"radius_km": -1, "global_search": True, "sort_by": "compatibility"},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert isinstance(resp.json(), list)

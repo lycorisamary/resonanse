@@ -32,6 +32,7 @@ class User(Base):
     avatar_url = Column(String(500), nullable=True, comment="URL аватара пользователя")
     birthdate = Column(Date, nullable=True, comment="Дата рождения пользователя")
     city = Column(String(100), nullable=True, comment="Город проживания")
+    gender = Column(String(20), nullable=True, comment="Пол пользователя (m/f/other)")
     
     # Статус и даты
     is_active = Column(Boolean, default=True, nullable=False, comment="Активен ли пользователь")

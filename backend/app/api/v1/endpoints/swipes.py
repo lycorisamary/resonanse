@@ -115,25 +115,35 @@ async def swipe(
 
 @router.get("/feed", response_model=List[UserResponse])
 async def get_feed(
-    radius_km: float = 10.0,
+    radius_km: int = 50,
+    age_min: int | None = None,
+    age_max: int | None = None,
+    gender: str | None = None,
+    has_common_interests: bool = False,
+    sort_by: str = "distance",  # distance | random | compatibility
+    global_search: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> List[UserResponse]:
     """
-    Лента кандидатов для свайпа.
+    Лента кандидатов для свайпа с гибкой фильтрацией и подготовкой к AI-рекомендациям.
 
-    - Проверяет Redis по ключу `feed:{user_id}`
-    - Если кэша нет — генерирует до 20 кандидатов через PostGIS и сохраняет в Redis на 5 минут
+    - Проверяет Redis по ключу `feed:{user_id}:{fingerprint_фильтров}`
+    - Если кэша нет — генерирует до 20–50 кандидатов через PostGIS/SQL и сохраняет в Redis на 5 минут
     - Исключает пользователей, по которым уже есть записи в `swipes`
+    - Поддерживает фильтры по радиусу, возрасту, полу и общим интересам
     """
-    if current_user.location is None:
+    if not global_search and radius_km != -1 and current_user.location is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Сначала нужно установить свою геолокацию через /users/location",
         )
 
+    # Формируем "отпечаток" фильтров для ключа кэша
+    filter_fingerprint = f"r={radius_km}|amin={age_min}|amax={age_max}|g={gender}|ci={int(has_common_interests)}|sb={sort_by}|glob={int(global_search)}"
+
     redis = await get_redis()
-    cache_key = f"feed:{current_user.id}"
+    cache_key = f"feed:{current_user.id}:{filter_fingerprint}"
 
     cached_ids = await redis.get(cache_key)
     if cached_ids:
@@ -145,36 +155,173 @@ async def get_feed(
         result = await db.execute(select(User).where(User.id.in_(ids)))
         return [UserResponse.model_validate(u) for u in result.scalars().all()]
 
-    radius_m = radius_km * 1000
+    # Нормализуем sort_by
+    sort_by_normalized = sort_by.lower()
+    if sort_by_normalized not in {"distance", "random", "compatibility"}:
+        sort_by_normalized = "distance"
 
-    # Генерация кандидатов через PostGIS
-    query = text(
-        """
-        WITH user_point AS (
-          SELECT location AS loc
-          FROM users
-          WHERE id = :uid AND location IS NOT NULL
-        ),
-        swiped AS (
-          SELECT CASE
-                   WHEN user_id_1 = :uid THEN user_id_2
-                   ELSE user_id_1
-                 END AS other_id
-          FROM swipes
-          WHERE user_id_1 = :uid OR user_id_2 = :uid
-        )
-        SELECT u.id
-        FROM users u, user_point p
-        WHERE u.id != :uid
-          AND u.location IS NOT NULL
-          AND u.id NOT IN (SELECT other_id FROM swiped)
-          AND ST_DWithin(u.location, p.loc, :radius)
-        ORDER BY ST_Distance(u.location, p.loc)
-        LIMIT 20
-        """
+    is_global = global_search or radius_km == -1
+    radius_m = radius_km * 1000 if not is_global else -1
+
+    params: dict[str, object] = {
+        "uid": current_user.id,
+        "radius": radius_m,
+        "age_min": age_min,
+        "age_max": age_max,
+        "gender": gender,
+        "has_common_interests": has_common_interests,
+        "is_global": is_global,
+        "limit": 20,
+    }
+
+    # Генерируем кусок условия по полу только если фильтр задан,
+    # чтобы избежать проблем с типом NULL-параметра в PostgreSQL.
+    gender_condition = "AND u.gender = :gender" if gender is not None else ""
+
+    # Аналогично собираем условия по возрасту.
+    age_min_condition = (
+        "AND u.birthdate IS NOT NULL "
+        "AND DATE_PART('year', age(u.birthdate)) >= :age_min"
+        if age_min is not None
+        else ""
+    )
+    age_max_condition = (
+        "AND u.birthdate IS NOT NULL "
+        "AND DATE_PART('year', age(u.birthdate)) <= :age_max"
+        if age_max is not None
+        else ""
     )
 
-    result_ids = await db.execute(query, {"uid": current_user.id, "radius": radius_m})
+    if is_global:
+        base_sql = """
+            WITH swiped AS (
+                SELECT CASE
+                         WHEN user_id_1 = :uid THEN user_id_2
+                         ELSE user_id_1
+                       END AS other_id
+                FROM swipes
+                WHERE user_id_1 = :uid OR user_id_2 = :uid
+            ),
+            current_interests AS (
+                SELECT tag
+                FROM user_interests
+                WHERE user_id = :uid
+            ),
+            base_candidates AS (
+                SELECT
+                    u.id,
+                    -- TODO: Здесь будет интеграция с AI-сервисом для расчета веса совместимости
+                    COALESCE(
+                        (
+                            SELECT COUNT(*)::float
+                            FROM user_interests ui
+                            JOIN current_interests ci ON ci.tag = ui.tag
+                            WHERE ui.user_id = u.id
+                        ),
+                        0.0
+                    ) AS ai_score
+                FROM users u
+                WHERE u.id != :uid
+                  AND u.id NOT IN (SELECT other_id FROM swiped)
+                  {gender_condition}
+                  {age_min_condition}
+                  {age_max_condition}
+                  AND (
+                        NOT :has_common_interests
+                        OR EXISTS (
+                            SELECT 1
+                            FROM user_interests ui
+                            JOIN current_interests ci ON ci.tag = ui.tag
+                            WHERE ui.user_id = u.id
+                        )
+                  )
+            )
+            SELECT id, ai_score
+            FROM base_candidates
+            """
+    else:
+        base_sql = """
+            WITH user_point AS (
+                SELECT location AS loc
+                FROM users
+                WHERE id = :uid AND location IS NOT NULL
+            ),
+            swiped AS (
+                SELECT CASE
+                         WHEN user_id_1 = :uid THEN user_id_2
+                         ELSE user_id_1
+                       END AS other_id
+                FROM swipes
+                WHERE user_id_1 = :uid OR user_id_2 = :uid
+            ),
+            current_interests AS (
+                SELECT tag
+                FROM user_interests
+                WHERE user_id = :uid
+            ),
+            base_candidates AS (
+                SELECT
+                    u.id,
+                    ST_Distance(u.location, p.loc) AS distance,
+                    -- TODO: Здесь будет интеграция с AI-сервисом для расчета веса совместимости
+                    COALESCE(
+                        (
+                            SELECT COUNT(*)::float
+                            FROM user_interests ui
+                            JOIN current_interests ci ON ci.tag = ui.tag
+                            WHERE ui.user_id = u.id
+                        ),
+                        0.0
+                    ) AS ai_score
+                FROM users u,
+                     user_point p
+                WHERE u.id != :uid
+                  AND u.location IS NOT NULL
+                  AND u.id NOT IN (SELECT other_id FROM swiped)
+                  AND ST_DWithin(u.location, p.loc, :radius)
+                  {gender_condition}
+                  {age_min_condition}
+                  {age_max_condition}
+                  AND (
+                        NOT :has_common_interests
+                        OR EXISTS (
+                            SELECT 1
+                            FROM user_interests ui
+                            JOIN current_interests ci ON ci.tag = ui.tag
+                            WHERE ui.user_id = u.id
+                        )
+                  )
+            )
+            SELECT id, distance, ai_score
+            FROM base_candidates
+            """
+
+    if sort_by_normalized == "random":
+        order_sql = "\n ORDER BY random() \n LIMIT :limit"
+    elif sort_by_normalized == "compatibility":
+        if is_global:
+            order_sql = "\n ORDER BY ai_score DESC NULLS LAST, id \n LIMIT :limit"
+        else:
+            order_sql = (
+                "\n ORDER BY ai_score DESC NULLS LAST, distance ASC NULLS LAST, id \n LIMIT :limit"
+            )
+    else:
+        if is_global:
+            order_sql = "\n ORDER BY ai_score DESC NULLS LAST, id \n LIMIT :limit"
+        else:
+            order_sql = (
+                "\n ORDER BY distance ASC NULLS LAST, ai_score DESC NULLS LAST, id \n LIMIT :limit"
+            )
+
+    # Подставляем условие по полу (строка либо пустая, либо с "AND u.gender = :gender")
+    sql_text = (base_sql + order_sql).format(
+        gender_condition=gender_condition,
+        age_min_condition=f" {age_min_condition}" if age_min_condition else "",
+        age_max_condition=f" {age_max_condition}" if age_max_condition else "",
+    )
+    query = text(sql_text)
+
+    result_ids = await db.execute(query, params)
     rows = result_ids.fetchall()
     ids = [row[0] for row in rows]
 

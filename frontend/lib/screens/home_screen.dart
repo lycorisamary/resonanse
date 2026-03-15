@@ -4,6 +4,7 @@ import '../models/user.dart';
 import 'login_screen.dart';
 import 'profile_screen.dart';
 import 'admin_panel_screen.dart';
+import 'feed_screen.dart';
 
 /// Главный экран приложения
 class HomeScreen extends StatefulWidget {
@@ -79,6 +80,15 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Резонанс'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.dashboard_customize),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const FeedScreen()),
+              );
+            },
+            tooltip: 'Лента',
+          ),
           if (_currentUser?.isAdmin == true)
             IconButton(
               icon: const Icon(Icons.admin_panel_settings),
@@ -134,14 +144,24 @@ class _HomeScreenState extends State<HomeScreen> {
             ElevatedButton.icon(
               onPressed: () {
                 Navigator.of(context).push(
+                  MaterialPageRoute(builder: (context) => const FeedScreen()),
+                );
+              },
+              icon: const Icon(Icons.explore),
+              label: const Text('Перейти к ленте'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
                   MaterialPageRoute(builder: (context) => const ProfileScreen()),
                 );
               },
               icon: const Icon(Icons.person),
               label: const Text('Мой профиль'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-              ),
             ),
           ],
         ),
