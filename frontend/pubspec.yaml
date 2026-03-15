@@ -1,0 +1,42 @@
+name: resonans
+description: Мобильное приложение для знакомств Резонанс
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # HTTP клиент для работы с API
+  http: ^1.1.0
+  
+  # Работа с JSON
+  json_annotation: ^4.8.1
+  
+  # Локальное хранилище
+  shared_preferences: ^2.2.2
+  
+  # Работа с изображениями
+  image_picker: ^1.0.5
+  cached_network_image: ^3.3.0  # Кэширование изображений из сети
+  
+  # UI компоненты
+  cupertino_icons: ^1.0.6
+  
+  # Локализация
+  flutter_localizations:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  build_runner: ^2.4.7
+  json_serializable: ^6.7.1
+
+flutter:
+  uses-material-design: true
+
