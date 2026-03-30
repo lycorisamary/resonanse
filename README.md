@@ -4,239 +4,132 @@
 
 ## Технический стек
 
-- **Бэкенд**: Python 3.10+, FastAPI (асинхронный режим)
+- **Бэкенд**: Python 3.11+, FastAPI (асинхронный режим)
 - **База данных**: PostgreSQL 14 с расширением PostGIS
 - **Кэш**: Redis
 - **Фронтенд**: Flutter (Dart), приоритет Android для MVP
-- **Инфраструктура**: Docker Compose (только для БД и Redis)
+- **Инфраструктура**: Docker Compose (PostgreSQL, Redis, MinIO)
 
-## Структура проекта
+## Требования
 
-```
-Resonans/
-├── backend/                 # Бэкенд приложение
-│   ├── app/
-│   │   ├── api/            # API эндпоинты
-│   │   │   └── v1/
-│   │   │       ├── endpoints/  # Эндпоинты (auth, users)
-│   │   │       └── router.py   # Главный роутер
-│   │   ├── core/           # Основные настройки
-│   │   │   ├── config.py   # Конфигурация приложения
-│   │   │   ├── database.py # Подключение к БД
-│   │   │   └── security.py # Безопасность (JWT, пароли)
-│   │   ├── models/         # SQLAlchemy модели
-│   │   │   └── user.py     # Модель пользователя
-│   │   ├── schemas/        # Pydantic схемы
-│   │   │   └── user.py     # Схемы пользователя
-│   │   └── main.py         # Точка входа приложения
-│   ├── requirements.txt    # Зависимости Python
-│   └── .env.example        # Пример файла окружения
-├── frontend/               # Flutter приложение
-│   ├── lib/
-│   │   └── main.dart       # Точка входа Flutter
-│   └── pubspec.yaml        # Зависимости Flutter
-├── docker-compose.yml      # Docker Compose для БД и Redis
-└── README.md               # Этот файл
-```
+- Python 3.11 или 3.12 (не используйте Python 3.13 из-за проблем совместимости)
+- Docker и Docker Compose
+- Flutter SDK (для фронтенда)
 
 ## Быстрый старт
 
-### Автоматический запуск (рекомендуется)
-
-#### Для Windows (PowerShell)
-
-Для полного развёртывания приложения используйте скрипт `start.ps1`:
-
-```powershell
-# Запустить всё приложение (БД, Redis, бэкенд)
-.\start.ps1
-```
-
-Этот скрипт автоматически:
-1. Проверит наличие Docker Compose
-2. Запустит PostgreSQL, Redis и MinIO через Docker Compose
-3. Настроит виртуальное окружение Python для бэкенда
-4. Установит все зависимости
-5. Создаст файл `.env` с настройками по умолчанию
-6. Инициализирует базу данных и применит все миграции
-7. Запустит сервер бэкенда
-
-#### Для Linux/Mac (Bash)
-
-Для полного развёртывания приложения используйте скрипт `start.sh`:
-
-```bash
-# Сделать скрипт исполняемым
-chmod +x start.sh
-
-# Запустить всё приложение (БД, Redis, бэкенд)
-./start.sh
-```
-
-Этот скрипт автоматически выполняет те же шаги, что и версия для Windows.
-
-**Примечание:** Фронтенд (Flutter) запускается отдельно, так как требует наличия Flutter SDK и эмулятора/устройства.
-
-### Ручная настройка
-
-#### 1. Настройка базы данных и Redis
-
-Запустите PostgreSQL, Redis и MinIO через Docker Compose:
+### 1. Запуск зависимостей (БД, Redis, MinIO)
 
 ```bash
 docker-compose up -d
 ```
 
-Дождитесь готовности сервисов (около 30 секунд):
-
+Проверьте статус контейнеров:
 ```bash
 docker-compose ps
 ```
 
-#### 2. Настройка бэкенда
+### 2. Настройка бэкенда
 
-1. Перейдите в папку бэкенда:
 ```bash
 cd backend
-```
 
-2. Создайте виртуальное окружение:
-```bash
+# Создание виртуального окружения
 python -m venv venv
-```
 
-3. Активируйте виртуальное окружение:
-- Windows: `venv\Scripts\activate`
-- Linux/Mac: `source venv/bin/activate`
+# Активация (Windows)
+venv\Scripts\activate
 
-4. Установите зависимости:
-```bash
+# Активация (Linux/Mac)
+source venv/bin/activate
+
+# Установка зависимостей
 pip install -r requirements.txt
-```
 
-5. Создайте файл `.env` на основе `.env.example`:
-```bash
-copy .env.example .env  # Windows
+# Создание файла .env
+cp .env.example .env  # Linux/Mac
 # или
-cp .env.example .env    # Linux/Mac
-```
+copy .env.example .env  # Windows
 
-6. Отредактируйте `.env` и укажите свои настройки:
-   - `SECRET_KEY` - обязательно сгенерируйте свой ключ
-   - `ADMIN_EMAIL` - email администратора (для доступа к админ-панели)
-   - Настройки MinIO (если используете)
+# Редактирование .env (обязательно измените SECRET_KEY!)
+# Можно сгенерировать ключ: python -c "import secrets; print(secrets.token_urlsafe(32))"
 
-7. Инициализируйте базу данных:
-```bash
-# Создание таблиц
+# Инициализация БД
 python init_db.py
-
-# Применение всех миграций
 python apply_migration.py
-```
 
-8. Запустите сервер:
-```bash
+# Запуск сервера
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-API будет доступно по адресу: http://localhost:8000
-Документация API: http://localhost:8000/docs
+API доступно по адресу: http://localhost:8000  
+Документация Swagger: http://localhost:8000/docs
 
-#### 3. Настройка фронтенда
+### 3. Настройка фронтенда
 
-1. Убедитесь, что у вас установлен Flutter SDK
-2. Перейдите в папку фронтенда:
 ```bash
 cd frontend
-```
 
-3. Установите зависимости:
-```bash
+# Установка зависимостей
 flutter pub get
-```
 
-4. Запустите приложение:
-```bash
+# Запуск приложения
 flutter run
 ```
 
 ## API Эндпоинты
 
 ### Авторизация
-
 - `POST /api/v1/auth/register` - Регистрация нового пользователя
 - `POST /api/v1/auth/login` - Вход в систему, получение JWT токена
 
 ### Пользователи
-
 - `GET /api/v1/users/me` - Получение информации о текущем пользователе
 - `PATCH /api/v1/users/me` - Обновление профиля пользователя
 - `POST /api/v1/users/upload-avatar` - Загрузка аватара
 - `POST /api/v1/users/change-password` - Смена пароля
+- `GET /api/v1/users/nearby` - Поиск пользователей поблизости
 
-### Города
-
-- `GET /api/v1/cities/cities` - Получение списка доступных городов
+### Свайпы и матчи
+- `POST /api/v1/swipes` - Отправка свайпа (like/dislike)
+- `GET /api/v1/feed` - Лента кандидатов
 
 ### Админ-панель
-
-- `GET /api/v1/admin/users` - Получение списка всех пользователей
-- `GET /api/v1/admin/users/{user_id}` - Получение пользователя по ID
+- `GET /api/v1/admin/users` - Список всех пользователей
+- `GET /api/v1/admin/users/{user_id}` - Информация о пользователе
 - `PATCH /api/v1/admin/users/{user_id}` - Обновление пользователя
-- `POST /api/v1/admin/users/{user_id}/activate` - Активация пользователя
-- `POST /api/v1/admin/users/{user_id}/deactivate` - Деактивация пользователя
-- `DELETE /api/v1/admin/users/{user_id}` - Удаление пользователя
+- `POST /api/v1/admin/users/{user_id}/activate` - Активация
+- `POST /api/v1/admin/users/{user_id}/deactivate` - Деактивация
+- `DELETE /api/v1/admin/users/{user_id}` - Удаление
 
-## Flutter приложение
+Полная документация доступна по адресу: http://localhost:8000/docs
 
-Приложение имеет полноценный UI для:
-- ✅ Регистрации и входа
-- ✅ Просмотра и редактирования профиля
-- ✅ Загрузки аватара
-- ✅ Админ-панели
-- ✅ Ленты кандидатов и свайпов (Feed)
+## Структура проекта
 
-Подробнее: [Документация Flutter UI](docs/FLUTTER_UI.md)
-
-## Текущий этап разработки
-
-**Неделя 3**: Геолокация, лента кандидатов и свайпы.
-
-### Реализованный функционал
-
-✅ **Авторизация и регистрация**
-- Регистрация новых пользователей
-- Вход в систему с JWT токенами
-- Автоматическое сохранение токена
-
-✅ **Управление профилем**
-- Просмотр и редактирование профиля
-- Загрузка аватара (галерея/камера)
-- Выбор города проживания
-- Смена пароля
-- Обновление данных (имя, фамилия, био, дата рождения)
-
-✅ **Админ-панель**
-- Просмотр всех пользователей
-- Управление пользователями (активация/деактивация, удаление)
-- Поиск пользователей
-- Доступ только для администратора (настраивается через ADMIN_EMAIL)
-
-✅ **Геолокация и свайпы**
-- Хранение геопозиции пользователя в PostGIS (`GEOGRAPHY(POINT, 4326)`)
-- Поиск пользователей поблизости через `/users/nearby`
-- Лента кандидатов `/feed` с кэшем в Redis
-- Свайпы `/swipes` с атомарным UPSERT и таблицей `swipes`
-- Создание матчей в таблице `matches` при взаимном лайке
+```
+Resonans/
+├── backend/                 # Бэкенд (FastAPI)
+│   ├── app/
+│   │   ├── api/            # API endpoints
+│   │   ├── core/           # Конфигурация, БД, безопасность
+│   │   ├── models/         # SQLAlchemy модели
+│   │   ├── schemas/        # Pydantic схемы
+│   │   └── main.py         # Точка входа
+│   ├── migrations/         # SQL миграции
+│   ├── requirements.txt    # Python зависимости
+│   ├── init_db.py          # Инициализация БД
+│   └── apply_migration.py  # Применение миграций
+├── frontend/               # Flutter приложение
+│   └── lib/                # Dart код
+├── docker-compose.yml      # Docker сервисы
+└── docs/                   # Документация
+```
 
 ## Дополнительная документация
 
-- [Инструкция по запуску бэкенда](docs/BACKEND_SETUP.md) - настройка и запуск FastAPI
-- [Инструкция по запуску фронтенда](docs/FRONTEND_SETUP.md) - настройка и запуск Flutter
-- [Документация API](docs/API.md) - описание всех эндпоинтов
-- [Архитектура проекта](docs/ARCHITECTURE.md) - структура и принципы разработки
-- [Управление профилем](docs/PROFILE_MANAGEMENT.md) - работа с профилем и файлами
-- [Настройка MinIO](docs/SETUP_MINIO.md) - настройка хранилища файлов
-- [Flutter UI руководство](docs/FLUTTER_UI.md) - описание экранов приложения
+- [API Documentation](docs/API.md)
+- [Backend Setup](docs/BACKEND_SETUP.md)
+- [Frontend Setup](docs/FRONTEND_SETUP.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [MinIO Setup](docs/SETUP_MINIO.md)
 
