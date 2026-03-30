@@ -1,6 +1,13 @@
 -- Migration: Add chat, messages and system messages support
 -- Date: 2026-03-30
 
+-- Create message types enum (if not exists)
+DO $$ BEGIN
+    CREATE TYPE message_type AS ENUM ('text', 'image', 'system');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
 -- Create conversations table for chats between matched users
 CREATE TABLE IF NOT EXISTS conversations (
     id SERIAL PRIMARY KEY,
@@ -21,9 +28,6 @@ CREATE TABLE IF NOT EXISTS conversations (
 CREATE INDEX IF NOT EXISTS idx_conversations_user_id_1 ON conversations(user_id_1);
 CREATE INDEX IF NOT EXISTS idx_conversations_user_id_2 ON conversations(user_id_2);
 CREATE INDEX IF NOT EXISTS idx_conversations_last_message ON conversations(last_message_at DESC);
-
--- Create message types enum
-CREATE TYPE message_type AS ENUM ('text', 'image', 'system');
 
 -- Create messages table
 CREATE TABLE IF NOT EXISTS messages (

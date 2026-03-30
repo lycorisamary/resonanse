@@ -1,64 +1,65 @@
 ```
-# Dependencies
-.venv/
-venv/
-__pycache__/
+# Compiled and build artifacts
 *.pyc
-*.pyo
-*.pyd
+__pycache__/
+*.o
+*.obj
+*.so
+*.dll
+*.exe
+*.class
+*.a
+*.lib
+*.dylib
+*.jar
+*.war
+*.zip
+*.tar.gz
+*.tar
+*.gz
+*.rar
+*.7z
+*.bz2
+*.xz
 
-# Build and distribution artifacts
-dist/
-build/
-*.egg-info/
-
-# Logs
-*.log
-
-# Environment variables
+# Dependencies
+node_modules/
+venv/
+.venv/
 .env
 .env.local
-*.env.*
+.env.*
 
-# Editor files
+# Build outputs
+dist/
+build/
+target/
+out/
+coverage/
+htmlcov/
+.mypy_cache/
+.pytest_cache/
+.gradle/
+.cargo/
+
+# Editors and IDEs
 .vscode/
 .idea/
 *.swp
 *.swo
 *.tmp
 
-# OS generated files
+# System files
 .DS_Store
 Thumbs.db
 
-# Testing
-.coverage
-htmlcov/
-.coverage.*
-.cache
-.pytest_cache/
-.mypy_cache/
-
-# Python specific
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-*.egg-info/
-.eggs/
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage*
-.nosetests.xml
-coverage.xml
-*.cover
+# Logs
 *.log
-.git/
-.mypy_cache/
-.hypothesis/
-.coverage.*
-.cache/
-.pytest_cache/
+*.out
+*.pid
+
+# Database and migration backups
+*.sql.bak
+*.db.bak
+backup/
 ```
