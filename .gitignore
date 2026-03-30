@@ -1,1 +1,1 @@
-Nothing should be ignored based on the provided file changes. The added and modified files (start.ps1 and README.md) are source/config files that should be tracked in version control.
+Nothing should be ignored based on the provided file changes. The modification of `start.ps1` (a PowerShell script file) does not require any additional ignore rules, and there are no build artifacts, dependencies, or temporary files in the change list.
