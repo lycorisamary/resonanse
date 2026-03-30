@@ -1,34 +1,32 @@
 # FastAPI и сервер
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
 
 # База данных
-sqlalchemy==2.0.23
-asyncpg==0.29.0  # Асинхронный драйвер для PostgreSQL
-alembic==1.12.1  # Миграции базы данных
+sqlalchemy>=2.0.0
+asyncpg>=0.29.0
+alembic>=1.12.0
 
 # Безопасность
-python-jose[cryptography]==3.3.0  # JWT токены
-passlib[bcrypt]==1.7.4  # Хеширование паролей
-python-multipart==0.0.6  # Для работы с формами
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-multipart>=0.0.6
 
 # Настройки
-pydantic==2.5.0
-pydantic-settings==2.1.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
 
-# Redis (для будущего использования)
-redis==5.0.1
-hiredis==2.2.3
+# Redis
+redis>=5.0.0
 
 # Утилиты
-python-dotenv==1.0.0  # Загрузка переменных окружения
+python-dotenv>=1.0.0
 
 # Хранилище файлов (S3/MinIO)
-minio==7.2.0  # MinIO клиент
-boto3==1.34.0  # AWS S3 клиент (альтернатива)
-aiofiles==23.2.1  # Асинхронная работа с файлами
+minio>=7.2.0
+aiofiles>=23.2.0
 
 # Геолокация / PostGIS
-geoalchemy2==0.14.4
+geoalchemy2>=0.14.0
 
 
