@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
@@ -15,6 +15,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.swipe import Match, Swipe
 from app.models.user import User
+from app.models.chat import Conversation
 from app.schemas.user import UserResponse
 from app.services.redis_client import get_redis
 
@@ -34,9 +35,32 @@ class SwipeResponse(BaseModel):
     is_match: bool = Field(..., description="True, если получился взаимный лайк")
 
 
+async def create_conversation_for_match(
+    db: AsyncSession,
+    user_id_1: int,
+    user_id_2: int,
+) -> None:
+    """Создать чат для двух пользователей при взаимном матче."""
+    # Проверяем, существует ли уже conversation
+    result = await db.execute(
+        select(Conversation).where(
+            ((Conversation.user_id_1 == user_id_1) & (Conversation.user_id_2 == user_id_2)) |
+            ((Conversation.user_id_1 == user_id_2) & (Conversation.user_id_2 == user_id_1))
+        )
+    )
+    existing = result.scalar_one_or_none()
+    
+    if not existing:
+        # Создаем новую conversation
+        conversation = Conversation(user_id_1=user_id_1, user_id_2=user_id_2)
+        db.add(conversation)
+        await db.commit()
+
+
 @router.post("/swipes", response_model=SwipeResponse)
 async def swipe(
     payload: SwipeCreate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> SwipeResponse:
@@ -46,6 +70,7 @@ async def swipe(
     - Одна строка в `swipes` на пару пользователей (user_id_1 < user_id_2)
     - `decision_1` / `decision_2` обновляются в зависимости от того, чей ID меньше
     - При взаимном лайке создаётся запись в `matches` и возвращается `is_match = True`
+    - Автоматически создается conversation для чата при матче
     """
     if payload.target_user_id == current_user.id:
         raise HTTPException(
@@ -102,6 +127,8 @@ async def swipe(
             existing = result_match.scalar_one_or_none()
             if existing is None:
                 db.add(Match(user_id_1=user_id_1, user_id_2=user_id_2))
+                # Создаем conversation для чата в фоновой задаче
+                background_tasks.add_task(create_conversation_for_match, db, user_id_1, user_id_2)
 
     # Фиксируем изменения
     await db.commit()

@@ -91,8 +91,17 @@ flutter run
 - `GET /api/v1/users/nearby` - Поиск пользователей поблизости
 
 ### Свайпы и матчи
-- `POST /api/v1/swipes` - Отправка свайпа (like/dislike)
+- `POST /api/v1/swipes` - Отправка свайпа (like/dislike), автоматическое создание чата при матче
 - `GET /api/v1/feed` - Лента кандидатов
+
+### Чат и сообщения
+- `GET /api/v1/conversations` - Список чатов пользователя
+- `GET /api/v1/conversations/{id}` - Детали конкретного чата
+- `GET /api/v1/conversations/{id}/messages` - История сообщений
+- `POST /api/v1/conversations/{id}/messages` - Отправить сообщение
+- `POST /api/v1/conversations/{id}/system-messages` - Системное сообщение (только админ)
+- `DELETE /api/v1/messages/{id}` - Удалить сообщение
+- `WebSocket /ws/conversations/{id}` - Real-time обмен сообщениями
 
 ### Админ-панель
 - `GET /api/v1/admin/users` - Список всех пользователей
@@ -132,4 +141,5 @@ Resonans/
 - [Frontend Setup](docs/FRONTEND_SETUP.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [MinIO Setup](docs/SETUP_MINIO.md)
+- [Чат и уведомления](docs/chat_and_notifications.md) - Полная документация по системе чата, WebSocket и уведомлениям
 
