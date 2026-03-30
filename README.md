@@ -41,15 +41,45 @@ Resonans/
 
 ## Быстрый старт
 
-### 1. Настройка базы данных и Redis
+### Автоматический запуск (рекомендуется)
 
-Запустите PostgreSQL и Redis через Docker Compose:
+Для полного развёртывания приложения используйте скрипт `start.sh`:
+
+```bash
+# Сделать скрипт исполняемым
+chmod +x start.sh
+
+# Запустить всё приложение (БД, Redis, бэкенд)
+./start.sh
+```
+
+Этот скрипт автоматически:
+1. Запустит PostgreSQL, Redis и MinIO через Docker Compose
+2. Настроит виртуальное окружение Python для бэкенда
+3. Установит все зависимости
+4. Создаст файл `.env` с настройками по умолчанию
+5. Инициализирует базу данных и применит все миграции
+6. Запустит сервер бэкенда
+
+**Примечание:** Фронтенд (Flutter) запускается отдельно, так как требует наличия Flutter SDK и эмулятора/устройства.
+
+### Ручная настройка
+
+#### 1. Настройка базы данных и Redis
+
+Запустите PostgreSQL, Redis и MinIO через Docker Compose:
 
 ```bash
 docker-compose up -d
 ```
 
-### 2. Настройка бэкенда
+Дождитесь готовности сервисов (около 30 секунд):
+
+```bash
+docker-compose ps
+```
+
+#### 2. Настройка бэкенда
 
 1. Перейдите в папку бэкенда:
 ```bash
@@ -87,12 +117,8 @@ cp .env.example .env    # Linux/Mac
 # Создание таблиц
 python init_db.py
 
-# Применение миграций
-# Миграция 001 (добавление полей профиля)
-type migrations\001_add_profile_fields.sql | docker exec -i resonans_postgres psql -U resonans_user -d resonans_db
-
-# Миграция 002 (добавление города и админа)
-type migrations\002_add_city_and_admin.sql | docker exec -i resonans_postgres psql -U resonans_user -d resonans_db
+# Применение всех миграций
+python apply_migration.py
 ```
 
 8. Запустите сервер:
@@ -103,7 +129,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 API будет доступно по адресу: http://localhost:8000
 Документация API: http://localhost:8000/docs
 
-### 3. Настройка фронтенда
+#### 3. Настройка фронтенда
 
 1. Убедитесь, что у вас установлен Flutter SDK
 2. Перейдите в папку фронтенда:
