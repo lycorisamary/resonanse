@@ -15,6 +15,7 @@ python-multipart>=0.0.6
 # Настройки
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
+pydantic[email]
 
 # Redis
 redis>=5.0.0
