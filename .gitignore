@@ -1,1 +1,1 @@
-Nothing needs to be added to .gitignore since the changes only include source/config files (.sh script and .md file) without any build artifacts, dependencies, or temporary files that should be ignored.
+Nothing should be ignored based on the provided file changes. The added and modified files (start.ps1 and README.md) are source/config files that should be tracked in version control.
